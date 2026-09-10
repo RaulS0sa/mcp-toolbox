@@ -61,7 +61,6 @@ type Config struct {
 	PipelineParams          parameters.Parameters  `yaml:"pipelineParams" validate:"required"`
 	Canonical               bool                   `yaml:"canonical"`
 	ReadOnly                bool                   `yaml:"readOnly"`
-	Annotations             *tools.ToolAnnotations `yaml:"annotations,omitempty"`
 }
 
 // validate interface

@@ -63,7 +63,6 @@ type Config struct {
 	FilterParams            parameters.Parameters  `yaml:"filterParams"`
 	ProjectPayload          string                 `yaml:"projectPayload"`
 	ProjectParams           parameters.Parameters  `yaml:"projectParams"`
-	Annotations             *tools.ToolAnnotations `yaml:"annotations,omitempty"`
 }
 
 // validate interface

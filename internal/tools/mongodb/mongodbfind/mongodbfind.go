@@ -66,7 +66,6 @@ type Config struct {
 	SortPayload             string                 `yaml:"sortPayload"`
 	SortParams              parameters.Parameters  `yaml:"sortParams"`
 	Limit                   int64                  `yaml:"limit"`
-	Annotations             *tools.ToolAnnotations `yaml:"annotations,omitempty"`
 }
 
 // validate interface

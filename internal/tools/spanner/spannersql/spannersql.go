@@ -58,7 +58,6 @@ type Config struct {
 	ReadOnly           bool                   `yaml:"readOnly"`
 	Parameters         parameters.Parameters  `yaml:"parameters"`
 	TemplateParameters parameters.Parameters  `yaml:"templateParameters"`
-	Annotations        *tools.ToolAnnotations `yaml:"annotations,omitempty"`
 }
 
 // validate interface

@@ -186,10 +186,11 @@ type ToolMeta interface {
 // configs omit description: and rely on a canned per-tool string), so
 // post-Initialize ConfigBase.Description holds the resolved value.
 type ConfigBase struct {
-	Name           string   `yaml:"name"           validate:"required"`
-	Description    string   `yaml:"description"`
-	AuthRequired   []string `yaml:"authRequired"`
-	ScopesRequired []string `yaml:"scopesRequired"`
+	Name           string           `yaml:"name"           validate:"required"`
+	Description    string           `yaml:"description"`
+	AuthRequired   []string         `yaml:"authRequired"`
+	ScopesRequired []string         `yaml:"scopesRequired"`
+	Annotations    *ToolAnnotations `yaml:"annotations,omitempty"`
 }
 
 func (c ConfigBase) GetName() string             { return c.Name }

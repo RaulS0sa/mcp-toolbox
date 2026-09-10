@@ -115,7 +115,6 @@ type Config struct {
 	Location          string                 `yaml:"location" validate:"required"`
 	Context           *QueryDataContext      `yaml:"context" validate:"required"`
 	GenerationOptions *GenerationOptions     `yaml:"generationOptions,omitempty"`
-	Annotations       *tools.ToolAnnotations `yaml:"annotations,omitempty"`
 }
 
 // validate interface

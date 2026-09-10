@@ -54,7 +54,6 @@ type Config struct {
 	Source             string                 `yaml:"source" validate:"required"`
 	ReadOnly           bool                   `yaml:"readOnly"`
 	AllowGraphOverride bool                   `yaml:"allowGraphOverride"`
-	Annotations        *tools.ToolAnnotations `yaml:"annotations,omitempty"`
 }
 
 // validate interface

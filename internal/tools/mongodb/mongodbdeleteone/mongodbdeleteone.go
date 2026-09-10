@@ -59,7 +59,6 @@ type Config struct {
 	CollectionAllowedValues []string               `yaml:"collectionAllowedValues"`
 	FilterPayload           string                 `yaml:"filterPayload" validate:"required"`
 	FilterParams            parameters.Parameters  `yaml:"filterParams"`
-	Annotations             *tools.ToolAnnotations `yaml:"annotations,omitempty"`
 }
 
 // validate interface

@@ -62,7 +62,6 @@ type Config struct {
 	UpdateParams            parameters.Parameters  `yaml:"updateParams" validate:"required"`
 	Canonical               bool                   `yaml:"canonical"`
 	Upsert                  bool                   `yaml:"upsert"`
-	Annotations             *tools.ToolAnnotations `yaml:"annotations,omitempty"`
 }
 
 // validate interface

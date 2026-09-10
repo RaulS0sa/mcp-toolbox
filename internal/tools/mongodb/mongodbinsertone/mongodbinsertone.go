@@ -58,7 +58,6 @@ type Config struct {
 	Collection              string                 `yaml:"collection"`
 	CollectionAllowedValues []string               `yaml:"collectionAllowedValues"`
 	Canonical               bool                   `yaml:"canonical"`
-	Annotations             *tools.ToolAnnotations `yaml:"annotations,omitempty"`
 }
 
 // validate interface

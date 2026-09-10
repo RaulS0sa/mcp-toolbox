@@ -55,7 +55,6 @@ type Config struct {
 	Source             string                 `yaml:"source" validate:"required"`
 	NLConfig           string                 `yaml:"nlConfig" validate:"required"`
 	NLConfigParameters parameters.Parameters  `yaml:"nlConfigParameters"`
-	Annotations        *tools.ToolAnnotations `yaml:"annotations,omitempty"`
 }
 
 // validate interface

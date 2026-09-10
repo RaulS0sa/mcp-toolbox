@@ -57,7 +57,6 @@ type Config struct {
 	Statement          string                 `yaml:"statement" validate:"required"`
 	Parameters         parameters.Parameters  `yaml:"parameters"`
 	TemplateParameters parameters.Parameters  `yaml:"templateParameters"`
-	Annotations        *tools.ToolAnnotations `yaml:"annotations,omitempty"`
 }
 
 // validate interface
