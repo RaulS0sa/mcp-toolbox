@@ -32,7 +32,7 @@ steps:
         --build-arg BUILD_TYPE=container.release \
         --build-arg COMMIT_SHA=$(git rev-parse --short HEAD) \
         $TAGS \
-        --push .
+        --output=type=oci,dest=/workspace/image.tar .
 
       # Pull the image to ensure it's available for provenance generation.
       docker pull ${_DOCKER_URI}:${VERSION}
@@ -471,3 +471,8 @@ substitutions:
   _ASSETS_BUCKET: toolbox-build-assets
   _DOCKER_URI: ${_AR_HOSTNAME}/${PROJECT_ID}/${_AR_REPO_NAME}/toolbox
   _PUSH_LATEST: "false" # Substituted in trigger
+
+artifacts:
+  oci:
+    - file: '/workspace/image.tar'
+      registry_path: 'us-central1-docker.pkg.dev/database-toolbox/toolbox-containers-staging/toolbox'
