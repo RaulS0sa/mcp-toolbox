@@ -90,10 +90,21 @@ func (p *ConfigParser) parseEnv(input string) (string, error) {
 	matches := re.FindAllStringSubmatchIndex(input, -1)
 	var output strings.Builder
 	lastIndex := 0
+	line, column := 1, 1
+	scannedBytes := 0
 
 	for _, match := range matches {
 		start, end := match[0], match[1]
-		line, column := lineColumnAt(input, start)
+		// Scan only from last scanned position since regex matches are in order
+		for _, r := range input[scannedBytes:start] {
+			if r == '\n' {
+				line++
+				column = 1
+			} else {
+				column++
+			}
+		}
+		scannedBytes = start
 
 		// checks if the placeholder is on or after the '#' on this line
 		if commentCol, ok := commentColByLine[line]; ok && column >= commentCol {
@@ -156,24 +167,6 @@ func (p *ConfigParser) parseEnv(input string) (string, error) {
 	}
 
 	return output.String(), err
-}
-
-// ParseConfig parses the provided yaml into appropriate configs.
-func lineColumnAt(input string, index int) (int, int) {
-	line := 1
-	column := 1
-	for i, r := range input {
-		if i >= index {
-			break
-		}
-		if r == '\n' {
-			line++
-			column = 1
-		} else {
-			column++
-		}
-	}
-	return line, column
 }
 
 func (p *ConfigParser) ParseConfig(ctx context.Context, raw []byte) (Config, error) {
