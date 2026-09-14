@@ -34,10 +34,6 @@ steps:
         $TAGS \
         --output=type=oci,dest=/workspace/image.tar .
 
-      # Pull the image to ensure it's available for provenance generation.
-      docker pull ${_DOCKER_URI}:${VERSION}
-      docker tag ${_DOCKER_URI}:${VERSION} ${_DOCKER_URI}:latest
-
   - id: "install-dependencies"
     name: golang:1
     waitFor: ["-"]
@@ -451,9 +447,6 @@ steps:
       #!/usr/bin/env bash
       bash .ci/trigger_exit_gate.sh pypi
 
-images:
-  - "${_DOCKER_URI}:latest"
-
 options:
   requestedVerifyOption: VERIFIED # This ensures provenance is generated
   automapSubstitutions: true
@@ -465,7 +458,7 @@ options:
 substitutions:
   _REGION: us-central1
   _AR_HOSTNAME: ${_REGION}-docker.pkg.dev
-  _AR_REPO_NAME: toolbox
+  _AR_REPO_NAME: toolbox-containers-staging
   _BUCKET_NAME: mcp-toolbox-for-databases
   _UNSIGNED_BUCKET_NAME: mcp-toolbox-for-databases-unsigned
   _ASSETS_BUCKET: toolbox-build-assets
@@ -475,4 +468,4 @@ substitutions:
 artifacts:
   oci:
     - file: '/workspace/image.tar'
-      registry_path: 'us-central1-docker.pkg.dev/database-toolbox/toolbox-containers-staging/toolbox'
+      registry_path: '${_DOCKER_URI}'
