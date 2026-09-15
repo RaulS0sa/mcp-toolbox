@@ -1,0 +1,62 @@
+# Local demo config for the agent memory tools.
+#
+#   export GOOGLE_API_KEY=...            # for the gemini embedding model
+#   ./toolbox --tools-file memory-demo.tools.yaml
+#
+# Requires a local Postgres with the pgvector extension available
+# (e.g. `apt install postgresql-17-pgvector`). The table is created on the first
+# create_memory call.
+kind: source
+name: toolbox-memory-db
+type: postgres
+host: 127.0.0.1
+port: 5432
+database: postgres
+user: toolbox_user
+password: postgres
+---
+kind: embeddingModel
+name: toolbox-embeddings
+type: gemini
+model: gemini-embedding-001
+apiKey: ${GOOGLE_API_KEY}
+dimension: 768
+---
+# Uncomment (and add `authService: toolbox-auth` to each tool) to bind user_id
+# from a Google ID token instead of the `user_id` parameter.
+# kind: authService
+# name: toolbox-auth
+# type: google
+# clientId: ${GOOGLE_CLIENT_ID}
+# ---
+kind: tool
+name: create_memory
+type: create-memory
+source: toolbox-memory-db
+embeddingModel: toolbox-embeddings
+---
+kind: tool
+name: search_memory
+type: search-memory
+source: toolbox-memory-db
+embeddingModel: toolbox-embeddings
+---
+kind: tool
+name: update_memory
+type: update-memory
+source: toolbox-memory-db
+embeddingModel: toolbox-embeddings
+---
+kind: tool
+name: delete_memory
+type: delete-memory
+source: toolbox-memory-db
+embeddingModel: toolbox-embeddings
+---
+kind: toolset
+name: agent_memory
+tools:
+  - search_memory
+  - create_memory
+  - update_memory
+  - delete_memory
