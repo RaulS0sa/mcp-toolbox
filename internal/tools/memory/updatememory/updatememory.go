@@ -30,7 +30,7 @@ import (
 
 const resourceType string = "update-memory"
 
-const defaultDescription = `Update an existing memory in place, identified by memory_id (obtained from search_memory or create_memory). Use it to correct a fact that changed or was wrong, to re-categorise it, to change its visibility, or to pin/unpin it. Only the supplied fields are changed; content updates are re-embedded automatically. Every update also refreshes the memory's access count and last_accessed_at.
+const defaultDescription = `Update an existing memory in place, identified by memory_id (obtained from search_memory or create_memory). Use it to correct a fact that changed or was wrong, or to change its visibility. Only the supplied fields are changed; content updates are re-embedded automatically.
 
 Only memories owned by the current user (or GLOBAL memories) can be updated.`
 
@@ -72,9 +72,7 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	allParameters := parameters.Parameters{
 		parameters.NewStringParameter("memory_id", "UUID of the memory to update.", parameters.WithStringRequired(true)),
 		parameters.NewStringParameter("content", "New content for the memory. Omit to keep the current content.", parameters.WithStringRequired(false)),
-		parameters.NewStringParameter("category", "New category. Omit to keep the current category.", parameters.WithStringRequired(false)),
 		parameters.NewStringParameter("visibility", "New visibility: PRIVATE or GLOBAL. Omit to keep the current visibility.", parameters.WithStringRequired(false)),
-		parameters.NewBooleanParameter("is_pinned", "Pin or unpin the memory. Omit to keep the current value.", parameters.WithBooleanRequired(false)),
 		cfg.UserIDParameter(),
 		cfg.EmbeddingParameter("content_embedding", "content"),
 	}
@@ -104,6 +102,7 @@ type Result struct {
 }
 
 func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.ParamValues, accessToken tools.AccessToken) (any, util.ToolboxError) {
+	logger, _ := util.LoggerFromContext(ctx)
 	source, ok := s.(memory.CompatibleSource)
 	if !ok {
 		return nil, util.NewClientServerError("source used is not compatible with the tool", http.StatusInternalServerError, nil)
@@ -122,7 +121,7 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		return nil, util.NewClientServerError("user_id could not be resolved", http.StatusBadRequest, nil)
 	}
 
-	sets := []string{"access_count = access_count + 1", "last_accessed_at = NOW()"}
+	var sets []string
 	args := []any{memoryID, userID}
 	changed := false
 	add := func(col string, v any, cast string) {
@@ -139,9 +138,6 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		add("content", strings.TrimSpace(content), "")
 		add("embedding", embedding, "::vector")
 	}
-	if category, ok := p["category"].(string); ok && strings.TrimSpace(category) != "" {
-		add("category", strings.TrimSpace(category), "")
-	}
 	if visibility, ok := p["visibility"].(string); ok && strings.TrimSpace(visibility) != "" {
 		v, err := memory.NormalizeVisibility(visibility)
 		if err != nil {
@@ -149,30 +145,34 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		}
 		add("visibility", v, "")
 	}
-	if pinned, ok := p["is_pinned"].(bool); ok {
-		add("is_pinned", pinned, "")
-	}
-	if changed {
-		sets = append(sets, "updated_at = NOW()")
+
+	if !changed {
+		existing, err := memory.GetMemory(ctx, pool, table, memoryID)
+		if err != nil {
+			return nil, util.NewAgentError(fmt.Sprintf("memory %q was not found", memoryID), nil)
+		}
+		return Result{Status: "updated", Message: "No fields supplied; memory unchanged.", Memory: &existing}, nil
 	}
 
 	stmt := fmt.Sprintf(`UPDATE %s SET %s WHERE memory_id = $1::uuid AND %s RETURNING %s`, table, strings.Join(sets, ", "), memory.ScopeClause("$2"), memory.Columns)
 	rows, err := pool.Query(ctx, stmt, args...)
 	if err != nil {
+		if logger != nil {
+			logger.ErrorContext(ctx, fmt.Sprintf("update_memory: update query failed: %v", err))
+		}
 		return nil, util.ProcessGeneralError(fmt.Errorf("unable to update memory: %w", err))
 	}
 	updated, err := memory.CollectMemories(rows, false)
 	if err != nil {
+		if logger != nil {
+			logger.ErrorContext(ctx, fmt.Sprintf("update_memory: reading updated row failed: %v", err))
+		}
 		return nil, util.ProcessGeneralError(err)
 	}
 	if len(updated) == 0 {
 		return nil, util.NewAgentError(fmt.Sprintf("memory %q was not found or is not visible to the current user", memoryID), nil)
 	}
-	msg := "Memory updated."
-	if !changed {
-		msg = "No fields supplied; memory salience refreshed."
-	}
-	return Result{Status: "updated", Message: msg, Memory: &updated[0]}, nil
+	return Result{Status: "updated", Message: "Memory updated.", Memory: &updated[0]}, nil
 }
 
 func (t Tool) EmbedParams(ctx context.Context, paramValues parameters.ParamValues, pMgr tools.PrimitiveManagerI) (parameters.ParamValues, error) {

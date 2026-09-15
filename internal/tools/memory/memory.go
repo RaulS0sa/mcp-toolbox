@@ -27,7 +27,6 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/googleapis/mcp-toolbox/internal/embeddingmodels"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
@@ -113,6 +112,15 @@ func (c Config) Resolve() (Config, error) {
 		c.DefaultUserID = DefaultUserID
 	}
 	return c, nil
+}
+
+// DefaultVisibility returns PRIVATE if an authService is configured,
+// or GLOBAL if unauthenticated.
+func (c Config) DefaultVisibility() string {
+	if c.AuthService != "" {
+		return VisibilityPrivate
+	}
+	return VisibilityGlobal
 }
 
 // UserIDParameter builds the user_id parameter. When an authService is
@@ -201,7 +209,7 @@ func EmbedParams(ctx context.Context, ps parameters.Parameters, paramValues para
 	return paramValues, nil
 }
 
-// Schema returns the DDL statements that bootstrap the memory table.
+// Schema returns the DDL statements that bootstrap the simplified memory table.
 func Schema(table string) []string {
 	idxPrefix := strings.ReplaceAll(table, ".", "_")
 	return []string{
@@ -209,18 +217,12 @@ func Schema(table string) []string {
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
     memory_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id VARCHAR(255) NOT NULL,
-    visibility VARCHAR(32) NOT NULL DEFAULT 'PRIVATE',
-    category VARCHAR(64) NOT NULL,
+    visibility VARCHAR(32) NOT NULL DEFAULT 'GLOBAL',
     content TEXT NOT NULL,
-    embedding VECTOR(%d) NOT NULL,
-    is_pinned BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    last_accessed_at TIMESTAMPTZ DEFAULT NOW(),
-    access_count INT DEFAULT 1
+    embedding VECTOR(%d) NOT NULL
 )`, table, EmbeddingDimensions),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_embedding_idx ON %s USING hnsw (embedding vector_cosine_ops)`, idxPrefix, table),
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_user_category_idx ON %s (user_id, category)`, idxPrefix, table),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_user_idx ON %s (user_id)`, idxPrefix, table),
 	}
 }
 
@@ -263,42 +265,28 @@ func (e *TableEnsurer) Ensure(ctx context.Context, pool *pgxpool.Pool, table str
 
 // Memory is the JSON representation of a stored memory returned to agents.
 type Memory struct {
-	MemoryID       string    `json:"memory_id"`
-	UserID         string    `json:"user_id"`
-	Visibility     string    `json:"visibility"`
-	Category       string    `json:"category"`
-	Content        string    `json:"content"`
-	IsPinned       bool      `json:"is_pinned"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-	LastAccessedAt time.Time `json:"last_accessed_at"`
-	AccessCount    int32     `json:"access_count"`
+	MemoryID   string `json:"memory_id"`
+	UserID     string `json:"user_id"`
+	Visibility string `json:"visibility"`
+	Content    string `json:"content"`
 	// Similarity is the cosine similarity to the query/candidate embedding
 	// (1 = identical). Only populated by similarity queries.
 	Similarity *float64 `json:"similarity,omitempty"`
 }
 
 // Columns is the SELECT list matching ScanMemory (without similarity).
-const Columns = `memory_id::text, user_id, visibility, category, content, is_pinned, created_at, updated_at, last_accessed_at, access_count`
+const Columns = `memory_id::text, user_id, visibility, content`
 
 // ScanMemory scans a row produced with Columns (optionally followed by a
 // similarity column when withSimilarity is true).
 func ScanMemory(rows pgx.Rows, withSimilarity bool) (Memory, error) {
 	var m Memory
-	var isPinned *bool
-	var accessCount *int32
-	dest := []any{&m.MemoryID, &m.UserID, &m.Visibility, &m.Category, &m.Content, &isPinned, &m.CreatedAt, &m.UpdatedAt, &m.LastAccessedAt, &accessCount}
+	dest := []any{&m.MemoryID, &m.UserID, &m.Visibility, &m.Content}
 	if withSimilarity {
 		dest = append(dest, &m.Similarity)
 	}
 	if err := rows.Scan(dest...); err != nil {
 		return m, err
-	}
-	if isPinned != nil {
-		m.IsPinned = *isPinned
-	}
-	if accessCount != nil {
-		m.AccessCount = *accessCount
 	}
 	return m, nil
 }
@@ -327,13 +315,12 @@ func IsUndefinedTable(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "42P01"
 }
 
-// Touch bumps the salience counters (access_count, last_accessed_at) of an
-// existing memory and returns the refreshed row.
-func Touch(ctx context.Context, pool *pgxpool.Pool, table, memoryID string) (Memory, error) {
-	stmt := fmt.Sprintf(`UPDATE %s SET access_count = access_count + 1, last_accessed_at = NOW() WHERE memory_id = $1::uuid RETURNING %s`, table, Columns)
+// GetMemory fetches an existing memory by memory_id.
+func GetMemory(ctx context.Context, pool *pgxpool.Pool, table, memoryID string) (Memory, error) {
+	stmt := fmt.Sprintf(`SELECT %s FROM %s WHERE memory_id = $1::uuid`, Columns, table)
 	rows, err := pool.Query(ctx, stmt, memoryID)
 	if err != nil {
-		return Memory{}, fmt.Errorf("unable to refresh existing memory: %w", err)
+		return Memory{}, fmt.Errorf("unable to fetch memory: %w", err)
 	}
 	ms, err := CollectMemories(rows, false)
 	if err != nil {

@@ -80,7 +80,7 @@ func TestInitializeParameters(t *testing.T) {
 				ConfigBase: tools.ConfigBase{Name: "create_memory"}, Type: "create-memory",
 				Source: "pg", EmbeddingModel: "emb", AuthService: "auth",
 			}},
-			wantVisible: []string{"content", "category", "visibility", "is_pinned", "force", "user_id"},
+			wantVisible: []string{"content", "visibility", "force", "user_id"},
 		},
 		{
 			desc: "missing embedding model fails",

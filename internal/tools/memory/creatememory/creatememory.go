@@ -34,10 +34,10 @@ const defaultDescription = `Persist a single, discrete fact about the user, thei
 
 Before inserting, the tool searches for existing memories that are semantically similar:
 - status "created": the memory was stored.
-- status "duplicate": an equivalent memory already exists; it was NOT re-created and its salience was refreshed instead.
-- status "conflict": similar memories exist that may overlap or contradict the new fact. Nothing was stored. Compare them with the new content, then either call update_memory on the matching memory_id (to correct/refresh it) or call create_memory again with force=true if the new fact is genuinely distinct.
+- status "duplicate": an equivalent memory already exists; it was NOT re-created.
+- status "conflict": similar memories exist that may overlap or contradict the new fact. Nothing was stored. Compare them with the new content, then either call update_memory on the matching memory_id (to correct it) or call create_memory again with force=true if the new fact is genuinely distinct.
 
-Keep content short, self-contained and in the third person. Use a stable snake_case category (e.g. build_fix, coding_style, project_context, user_preference).`
+Keep content short, self-contained and in the third person.`
 
 func init() {
 	if !tools.Register(resourceType, newConfig) {
@@ -101,10 +101,8 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 
 	allParameters := parameters.Parameters{
 		parameters.NewStringParameter("content", "The fact to remember, as a short self-contained sentence.", parameters.WithStringRequired(true)),
-		parameters.NewStringParameter("category", "Stable snake_case grouping for the fact, e.g. build_fix, coding_style, project_context, user_preference.", parameters.WithStringRequired(true)),
-		parameters.NewStringParameter("visibility", "PRIVATE (default, only the current user can recall it) or GLOBAL (shared with every user of this memory store).", parameters.WithStringDefault(memory.VisibilityPrivate)),
-		parameters.NewBooleanParameter("is_pinned", "Pin the memory so it is never pruned by decay.", parameters.WithBooleanDefault(false)),
-		parameters.NewBooleanParameter("force", "Skip duplicate/conflict detection and insert unconditionally. Only use after reviewing the conflict candidates.", parameters.WithBooleanDefault(false)),
+		parameters.NewStringParameter("visibility", "PRIVATE or GLOBAL. If unauthenticated, defaults to GLOBAL; if authenticated, defaults to PRIVATE.", parameters.WithStringDefault(cfg.DefaultVisibility())),
+		parameters.NewBooleanParameter("force", "Skip duplicate/conflict detection and insert unconditionally. Only use after reviewing conflict candidates.", parameters.WithBooleanDefault(false)),
 		cfg.UserIDParameter(),
 		cfg.EmbeddingParameter("content_embedding", "content"),
 	}
@@ -140,7 +138,7 @@ type Result struct {
 	Status string `json:"status"`
 	// Message explains the status and what the agent should do next.
 	Message string `json:"message"`
-	// Memory is the stored (or refreshed duplicate) memory, when applicable.
+	// Memory is the stored (or duplicate) memory, when applicable.
 	Memory *memory.Memory `json:"memory,omitempty"`
 	// SimilarMemories lists potentially conflicting memories on "conflict".
 	SimilarMemories []memory.Memory `json:"similar_memories,omitempty"`
@@ -164,11 +162,11 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if content == "" {
 		return nil, util.NewAgentError("content must not be empty", nil)
 	}
-	category := strings.TrimSpace(asString(p["category"]))
-	if category == "" {
-		return nil, util.NewAgentError("category must not be empty", nil)
+	rawVis := asString(p["visibility"])
+	if rawVis == "" {
+		rawVis = t.Cfg.DefaultVisibility()
 	}
-	visibility, err := memory.NormalizeVisibility(asString(p["visibility"]))
+	visibility, err := memory.NormalizeVisibility(rawVis)
 	if err != nil {
 		return nil, util.NewAgentError(err.Error(), nil)
 	}
@@ -188,19 +186,16 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		}
 		return nil, util.NewClientServerError(err.Error(), http.StatusInternalServerError, err)
 	}
-	isPinned, _ := p["is_pinned"].(bool)
 	force, _ := p["force"].(bool)
 
 	if logger != nil {
-		logger.InfoContext(ctx, fmt.Sprintf("create_memory: preparing insert for user=%q, category=%q, visibility=%q, content_len=%d", userID, category, visibility, len(content)))
+		logger.InfoContext(ctx, fmt.Sprintf("create_memory: preparing insert for user=%q, visibility=%q, content_len=%d", userID, visibility, len(content)))
 	}
 
 	if err := t.table.Ensure(ctx, pool, table); err != nil {
 		if logger != nil {
 			logger.ErrorContext(ctx, fmt.Sprintf("create_memory: table bootstrap failed: %v", err))
 		}
-		// Return AgentError so the LLM/client receives the descriptive error message
-		// instead of a generic 500 protocol error.
 		return nil, util.NewAgentError(fmt.Sprintf("database setup error: %v", err), err)
 	}
 
@@ -230,20 +225,20 @@ LIMIT $4`, memory.Columns, table, memory.ScopeClause("$2"))
 			top := similar[0]
 			if top.Similarity != nil && *top.Similarity >= t.duplicateThreshold {
 				if logger != nil {
-					logger.InfoContext(ctx, fmt.Sprintf("create_memory: duplicate found (similarity=%.3f, id=%s); refreshing salience", *top.Similarity, top.MemoryID))
+					logger.InfoContext(ctx, fmt.Sprintf("create_memory: duplicate found (similarity=%.3f, id=%s)", *top.Similarity, top.MemoryID))
 				}
-				refreshed, err := memory.Touch(ctx, pool, table, top.MemoryID)
+				existing, err := memory.GetMemory(ctx, pool, table, top.MemoryID)
 				if err != nil {
 					if logger != nil {
-						logger.ErrorContext(ctx, fmt.Sprintf("create_memory: refresh existing memory failed: %v", err))
+						logger.ErrorContext(ctx, fmt.Sprintf("create_memory: get existing memory failed: %v", err))
 					}
 					return nil, util.ProcessGeneralError(err)
 				}
-				refreshed.Similarity = top.Similarity
+				existing.Similarity = top.Similarity
 				return Result{
 					Status:  "duplicate",
-					Message: fmt.Sprintf("An equivalent memory already exists (similarity %.3f). It was not re-created; its access count and last_accessed_at were refreshed. Call update_memory with this memory_id if the wording should change.", *top.Similarity),
-					Memory:  &refreshed,
+					Message: fmt.Sprintf("An equivalent memory already exists (similarity %.3f). It was not re-created. Call update_memory with this memory_id if the wording should change.", *top.Similarity),
+					Memory:  &existing,
 				}, nil
 			}
 			if logger != nil {
@@ -257,10 +252,10 @@ LIMIT $4`, memory.Columns, table, memory.ScopeClause("$2"))
 		}
 	}
 
-	insert := fmt.Sprintf(`INSERT INTO %s (user_id, visibility, category, content, embedding, is_pinned)
-VALUES ($1, $2, $3, $4, $5::vector, $6)
+	insert := fmt.Sprintf(`INSERT INTO %s (user_id, visibility, content, embedding)
+VALUES ($1, $2, $3, $4::vector)
 RETURNING %s`, table, memory.Columns)
-	rows, err := pool.Query(ctx, insert, userID, visibility, category, content, embedding, isPinned)
+	rows, err := pool.Query(ctx, insert, userID, visibility, content, embedding)
 	if err != nil {
 		if logger != nil {
 			logger.ErrorContext(ctx, fmt.Sprintf("create_memory: INSERT failed: %v", err))

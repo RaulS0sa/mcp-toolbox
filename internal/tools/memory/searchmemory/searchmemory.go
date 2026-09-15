@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 
 	yaml "github.com/goccy/go-yaml"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
@@ -32,7 +31,7 @@ const resourceType string = "search-memory"
 
 const defaultDescription = `Semantically search persistent memories (facts, preferences, project context, known fixes) that were saved in earlier sessions. Call this at the start of a task, before answering questions about the user's environment or preferences, and before creating a new memory to check whether one already exists.
 
-Returns the most relevant memories visible to the current user (their PRIVATE memories plus GLOBAL ones), ordered by similarity (1 = identical). Returned memories have their access count and last_accessed_at refreshed.`
+Returns the most relevant memories visible to the current user (their PRIVATE memories plus GLOBAL ones), ordered by similarity (1 = identical).`
 
 func init() {
 	if !tools.Register(resourceType, newConfig) {
@@ -85,7 +84,6 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 
 	allParameters := parameters.Parameters{
 		parameters.NewStringParameter("query", "Natural language description of what to recall, e.g. \"timezone of the orders database\".", parameters.WithStringRequired(true)),
-		parameters.NewStringParameter("category", "Optional category filter (exact match), e.g. build_fix.", parameters.WithStringDefault("")),
 		parameters.NewIntParameter("limit", "Maximum number of memories to return.", parameters.WithIntDefault(limit), parameters.WithIntMinValue(&one), parameters.WithIntMaxValue(&fifty)),
 		cfg.UserIDParameter(),
 		cfg.EmbeddingParameter("query_embedding", "query"),
@@ -117,6 +115,7 @@ type Result struct {
 }
 
 func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.ParamValues, accessToken tools.AccessToken) (any, util.ToolboxError) {
+	logger, _ := util.LoggerFromContext(ctx)
 	source, ok := s.(memory.CompatibleSource)
 	if !ok {
 		return nil, util.NewClientServerError("source used is not compatible with the tool", http.StatusInternalServerError, nil)
@@ -137,42 +136,28 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if v, ok := p["limit"].(int); ok && v > 0 {
 		limit = v
 	}
-	category, _ := p["category"].(string)
-	category = strings.TrimSpace(category)
 
-	args := []any{embedding, userID, t.minSimilarity, limit}
-	categoryFilter := ""
-	if category != "" {
-		args = append(args, category)
-		categoryFilter = fmt.Sprintf(" AND category = $%d", len(args))
-	}
+	query := fmt.Sprintf(`SELECT %s, 1 - (embedding <=> $1::vector) AS similarity
+FROM %s
+WHERE %s AND 1 - (embedding <=> $1::vector) >= $3
+ORDER BY embedding <=> $1::vector
+LIMIT $4`, memory.Columns, table, memory.ScopeClause("$2"))
 
-	// Select the top matches, refresh their salience counters, and return them
-	// ordered by similarity.
-	query := fmt.Sprintf(`WITH hits AS (
-    SELECT memory_id, 1 - (embedding <=> $1::vector) AS similarity
-    FROM %[1]s
-    WHERE %[2]s AND 1 - (embedding <=> $1::vector) >= $3%[3]s
-    ORDER BY embedding <=> $1::vector
-    LIMIT $4
-), refreshed AS (
-    UPDATE %[1]s AS m
-    SET access_count = m.access_count + 1, last_accessed_at = NOW()
-    FROM hits
-    WHERE m.memory_id = hits.memory_id
-    RETURNING m.memory_id, m.user_id, m.visibility, m.category, m.content, m.is_pinned, m.created_at, m.updated_at, m.last_accessed_at, m.access_count, hits.similarity
-)
-SELECT %[4]s, similarity FROM refreshed ORDER BY similarity DESC`, table, memory.ScopeClause("$2"), categoryFilter, memory.Columns)
-
-	rows, err := pool.Query(ctx, query, args...)
+	rows, err := pool.Query(ctx, query, embedding, userID, t.minSimilarity, limit)
 	if err != nil {
 		if memory.IsUndefinedTable(err) {
 			return Result{Memories: []memory.Memory{}, Message: "No memories have been stored yet."}, nil
+		}
+		if logger != nil {
+			logger.ErrorContext(ctx, fmt.Sprintf("search_memory: query failed: %v", err))
 		}
 		return nil, util.ProcessGeneralError(fmt.Errorf("unable to search memories: %w", err))
 	}
 	memories, err := memory.CollectMemories(rows, true)
 	if err != nil {
+		if logger != nil {
+			logger.ErrorContext(ctx, fmt.Sprintf("search_memory: collect rows failed: %v", err))
+		}
 		return nil, util.ProcessGeneralError(err)
 	}
 	res := Result{Memories: memories}

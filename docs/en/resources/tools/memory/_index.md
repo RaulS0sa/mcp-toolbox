@@ -9,16 +9,16 @@ description: >
 ## About
 
 The agent memory tools let an agent persist and recall discrete facts across
-sessions: build fixes, coding-style preferences, project context, user
-preferences, etc. Memories are stored in a Postgres table with a `pgvector`
-embedding and are scoped to a `user_id`; each memory is either `PRIVATE` (only
-visible to its owner) or `GLOBAL` (visible to every user of the memory store).
+sessions. Memories are stored in a Postgres table with a `pgvector` embedding and
+are scoped to a `user_id`; each memory is either `PRIVATE` (only visible to its
+owner) or `GLOBAL` (visible to every user of the memory store; default for
+unauthenticated users).
 
 | tool type       | purpose                                                                                                   |
 |-----------------|-----------------------------------------------------------------------------------------------------------|
 | `create-memory` | Store a new fact. Runs synchronous duplicate/conflict detection first and bootstraps the table if needed. |
-| `search-memory` | Semantic recall of memories visible to the current user; refreshes salience of returned rows.             |
-| `update-memory` | Correct, re-categorise, re-scope or pin an existing memory (re-embeds when content changes).              |
+| `search-memory` | Semantic recall of memories visible to the current user (PRIVATE + GLOBAL).                                |
+| `update-memory` | Correct or re-scope an existing memory (re-embeds when content changes).                                   |
 | `delete-memory` | Permanently forget a memory.                                                                              |
 
 Every tool requires a compatible **source**, an **embeddingModel** and,
@@ -36,21 +36,15 @@ The database must have the `vector` extension available (the tools run
 ## Schema
 
 `create-memory` creates the following table (and an HNSW cosine index plus a
-`(user_id, category)` index) on first use:
+`user_id` index) on first use:
 
 ```sql
 CREATE TABLE IF NOT EXISTS mcp_agent_memories (
     memory_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id VARCHAR(255) NOT NULL,
-    visibility VARCHAR(32) NOT NULL DEFAULT 'PRIVATE', -- PRIVATE or GLOBAL
-    category VARCHAR(64) NOT NULL,                     -- build_fix, coding_style, ...
-    content TEXT NOT NULL,                             -- the discrete fact
-    embedding VECTOR(768) NOT NULL,
-    is_pinned BOOLEAN DEFAULT FALSE,                   -- bypasses decay
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    last_accessed_at TIMESTAMPTZ DEFAULT NOW(),
-    access_count INT DEFAULT 1
+    visibility VARCHAR(32) NOT NULL DEFAULT 'GLOBAL', -- PRIVATE or GLOBAL (default GLOBAL if unauth)
+    content TEXT NOT NULL,
+    embedding VECTOR(768) NOT NULL
 );
 ```
 
@@ -63,7 +57,7 @@ The embedding model must produce 768-dimensional vectors (e.g.
 
 | top similarity                            | result                                                                                                                                     |
 |-------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|
-| `>= duplicateThreshold` (default `0.95`)  | `status: duplicate` – nothing inserted; the existing memory's `access_count`/`last_accessed_at` are refreshed and it is returned.            |
+| `>= duplicateThreshold` (default `0.95`)  | `status: duplicate` – nothing inserted; the existing memory is returned.                                                                  |
 | `>= conflictThreshold` (default `0.80`)   | `status: conflict` – nothing inserted; the similar memories are returned so the agent can call `update_memory` or retry with `force: true`. |
 | otherwise                                 | `status: created`.                                                                                                                         |
 
@@ -129,7 +123,8 @@ tools:
 ```
 
 Omit `authService` for local development: `user_id` then becomes an optional
-tool parameter that defaults to `defaultUserId` (`"default"`).
+tool parameter that defaults to `defaultUserId` (`"default"`), and visibility
+defaults to `GLOBAL`.
 
 ## Reference
 
@@ -165,9 +160,9 @@ Fields shared by all four tool types:
 
 | tool            | parameters                                                                                             |
 |-----------------|--------------------------------------------------------------------------------------------------------|
-| `create_memory` | `content` (req), `category` (req), `visibility` (PRIVATE/GLOBAL), `is_pinned`, `force`, `user_id`*     |
-| `search_memory` | `query` (req), `category`, `limit`, `user_id`*                                                         |
-| `update_memory` | `memory_id` (req), `content`, `category`, `visibility`, `is_pinned`, `user_id`*                        |
+| `create_memory` | `content` (req), `visibility` (PRIVATE/GLOBAL), `force`, `user_id`*                                    |
+| `search_memory` | `query` (req), `limit`, `user_id`*                                                                     |
+| `update_memory` | `memory_id` (req), `content`, `visibility`, `user_id`*                                                 |
 | `delete_memory` | `memory_id` (req), `user_id`*                                                                          |
 
 \* `user_id` is hidden from the model and bound from the ID token when
