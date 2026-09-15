@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/googleapis/mcp-toolbox/internal/group"
 	"github.com/googleapis/mcp-toolbox/internal/log"
 	"github.com/googleapis/mcp-toolbox/internal/prebuiltconfigs"
 	"github.com/googleapis/mcp-toolbox/internal/server"
@@ -303,6 +304,12 @@ func (opts *ToolboxOptions) LoadConfig(ctx context.Context, parser *ConfigParser
 	if err != nil {
 		logger.ErrorContext(ctx, err.Error())
 		return isCustomConfigured, err
+	}
+
+	if len(opts.PrebuiltConfigs) == 1 && !isCustomConfigured && len(finalConfig.Groups) == 1 {
+		for _, g := range finalConfig.Groups {
+			finalConfig.Groups[""] = group.GroupConfig{Description: g.Description}
+		}
 	}
 
 	opts.Cfg.SourceConfigs = finalConfig.Sources
