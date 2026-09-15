@@ -147,9 +147,14 @@ type Result struct {
 }
 
 func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.ParamValues, accessToken tools.AccessToken) (any, util.ToolboxError) {
+	logger, _ := util.LoggerFromContext(ctx)
 	source, ok := s.(memory.CompatibleSource)
 	if !ok {
-		return nil, util.NewClientServerError("source used is not compatible with the tool", http.StatusInternalServerError, nil)
+		err := fmt.Errorf("source %q is not compatible with create-memory", t.Cfg.Source)
+		if logger != nil {
+			logger.ErrorContext(ctx, err.Error())
+		}
+		return nil, util.NewClientServerError(err.Error(), http.StatusInternalServerError, err)
 	}
 	pool := source.PostgresPool()
 	table := t.Cfg.TableName
@@ -169,17 +174,34 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	}
 	userID := asString(p["user_id"])
 	if userID == "" {
-		return nil, util.NewClientServerError("user_id could not be resolved", http.StatusBadRequest, nil)
+		err := fmt.Errorf("user_id could not be resolved for tool %q", t.Cfg.Name)
+		if logger != nil {
+			logger.ErrorContext(ctx, err.Error())
+		}
+		return nil, util.NewClientServerError(err.Error(), http.StatusBadRequest, err)
 	}
 	embedding, ok := p["content_embedding"].(string)
 	if !ok || embedding == "" {
-		return nil, util.NewClientServerError("content embedding was not generated; check the embeddingModel configuration", http.StatusInternalServerError, nil)
+		err := fmt.Errorf("content embedding was not generated; check embeddingModel %q", t.Cfg.EmbeddingModel)
+		if logger != nil {
+			logger.ErrorContext(ctx, err.Error())
+		}
+		return nil, util.NewClientServerError(err.Error(), http.StatusInternalServerError, err)
 	}
 	isPinned, _ := p["is_pinned"].(bool)
 	force, _ := p["force"].(bool)
 
+	if logger != nil {
+		logger.InfoContext(ctx, fmt.Sprintf("create_memory: preparing insert for user=%q, category=%q, visibility=%q, content_len=%d", userID, category, visibility, len(content)))
+	}
+
 	if err := t.table.Ensure(ctx, pool, table); err != nil {
-		return nil, util.NewClientServerError(err.Error(), http.StatusInternalServerError, err)
+		if logger != nil {
+			logger.ErrorContext(ctx, fmt.Sprintf("create_memory: table bootstrap failed: %v", err))
+		}
+		// Return AgentError so the LLM/client receives the descriptive error message
+		// instead of a generic 500 protocol error.
+		return nil, util.NewAgentError(fmt.Sprintf("database setup error: %v", err), err)
 	}
 
 	// Synchronous collision handling: look for semantically similar memories
@@ -192,18 +214,29 @@ ORDER BY embedding <=> $1::vector
 LIMIT $4`, memory.Columns, table, memory.ScopeClause("$2"))
 		rows, err := pool.Query(ctx, query, embedding, userID, t.conflictThreshold, t.maxCandidates)
 		if err != nil {
+			if logger != nil {
+				logger.ErrorContext(ctx, fmt.Sprintf("create_memory: similarity check query failed: %v", err))
+			}
 			return nil, util.ProcessGeneralError(fmt.Errorf("unable to check for similar memories: %w", err))
 		}
 		similar, err := memory.CollectMemories(rows, true)
 		if err != nil {
+			if logger != nil {
+				logger.ErrorContext(ctx, fmt.Sprintf("create_memory: reading similarity rows failed: %v", err))
+			}
 			return nil, util.ProcessGeneralError(err)
 		}
 		if len(similar) > 0 {
 			top := similar[0]
 			if top.Similarity != nil && *top.Similarity >= t.duplicateThreshold {
-				// Refresh salience of the existing memory instead of duplicating it.
+				if logger != nil {
+					logger.InfoContext(ctx, fmt.Sprintf("create_memory: duplicate found (similarity=%.3f, id=%s); refreshing salience", *top.Similarity, top.MemoryID))
+				}
 				refreshed, err := memory.Touch(ctx, pool, table, top.MemoryID)
 				if err != nil {
+					if logger != nil {
+						logger.ErrorContext(ctx, fmt.Sprintf("create_memory: refresh existing memory failed: %v", err))
+					}
 					return nil, util.ProcessGeneralError(err)
 				}
 				refreshed.Similarity = top.Similarity
@@ -212,6 +245,9 @@ LIMIT $4`, memory.Columns, table, memory.ScopeClause("$2"))
 					Message: fmt.Sprintf("An equivalent memory already exists (similarity %.3f). It was not re-created; its access count and last_accessed_at were refreshed. Call update_memory with this memory_id if the wording should change.", *top.Similarity),
 					Memory:  &refreshed,
 				}, nil
+			}
+			if logger != nil {
+				logger.InfoContext(ctx, fmt.Sprintf("create_memory: %d potential conflicts found (top similarity=%.3f)", len(similar), *top.Similarity))
 			}
 			return Result{
 				Status:          "conflict",
@@ -226,14 +262,23 @@ VALUES ($1, $2, $3, $4, $5::vector, $6)
 RETURNING %s`, table, memory.Columns)
 	rows, err := pool.Query(ctx, insert, userID, visibility, category, content, embedding, isPinned)
 	if err != nil {
+		if logger != nil {
+			logger.ErrorContext(ctx, fmt.Sprintf("create_memory: INSERT failed: %v", err))
+		}
 		return nil, util.ProcessGeneralError(fmt.Errorf("unable to create memory: %w", err))
 	}
 	created, err := memory.CollectMemories(rows, false)
 	if err != nil {
+		if logger != nil {
+			logger.ErrorContext(ctx, fmt.Sprintf("create_memory: reading created memory row failed: %v", err))
+		}
 		return nil, util.ProcessGeneralError(err)
 	}
 	if len(created) != 1 {
 		return nil, util.NewClientServerError("memory insert returned no row", http.StatusInternalServerError, nil)
+	}
+	if logger != nil {
+		logger.InfoContext(ctx, fmt.Sprintf("create_memory: successfully created memory id=%s", created[0].MemoryID))
 	}
 	return Result{Status: "created", Message: "Memory stored.", Memory: &created[0]}, nil
 }

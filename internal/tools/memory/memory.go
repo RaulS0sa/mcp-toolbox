@@ -32,6 +32,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/embeddingmodels"
 	"github.com/googleapis/mcp-toolbox/internal/sources"
 	"github.com/googleapis/mcp-toolbox/internal/tools"
+	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -235,17 +236,28 @@ func NewTableEnsurer() *TableEnsurer { return &TableEnsurer{} }
 
 // Ensure runs the schema DDL if it hasn't succeeded yet.
 func (e *TableEnsurer) Ensure(ctx context.Context, pool *pgxpool.Pool, table string) error {
+	logger, _ := util.LoggerFromContext(ctx)
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.done {
 		return nil
 	}
 	for _, stmt := range Schema(table) {
+		firstLine := strings.Split(strings.TrimSpace(stmt), "\n")[0]
+		if logger != nil {
+			logger.InfoContext(ctx, fmt.Sprintf("memory: bootstrapping schema: %s", firstLine))
+		}
 		if _, err := pool.Exec(ctx, stmt); err != nil {
-			return fmt.Errorf("unable to bootstrap memory table %q: %w (is the pgvector extension installed?)", table, err)
+			if logger != nil {
+				logger.ErrorContext(ctx, fmt.Sprintf("memory: schema bootstrap failed on [%s]: %v", firstLine, err))
+			}
+			return fmt.Errorf("unable to bootstrap memory table %q: %w (is the pgvector extension installed, and does the user have permission?)", table, err)
 		}
 	}
 	e.done = true
+	if logger != nil {
+		logger.InfoContext(ctx, fmt.Sprintf("memory: schema bootstrap completed successfully for table %q", table))
+	}
 	return nil
 }
 
@@ -267,23 +279,21 @@ type Memory struct {
 }
 
 // Columns is the SELECT list matching ScanMemory (without similarity).
-const Columns = `memory_id, user_id, visibility, category, content, is_pinned, created_at, updated_at, last_accessed_at, access_count`
+const Columns = `memory_id::text, user_id, visibility, category, content, is_pinned, created_at, updated_at, last_accessed_at, access_count`
 
 // ScanMemory scans a row produced with Columns (optionally followed by a
 // similarity column when withSimilarity is true).
 func ScanMemory(rows pgx.Rows, withSimilarity bool) (Memory, error) {
 	var m Memory
-	var id [16]byte
 	var isPinned *bool
 	var accessCount *int32
-	dest := []any{&id, &m.UserID, &m.Visibility, &m.Category, &m.Content, &isPinned, &m.CreatedAt, &m.UpdatedAt, &m.LastAccessedAt, &accessCount}
+	dest := []any{&m.MemoryID, &m.UserID, &m.Visibility, &m.Category, &m.Content, &isPinned, &m.CreatedAt, &m.UpdatedAt, &m.LastAccessedAt, &accessCount}
 	if withSimilarity {
 		dest = append(dest, &m.Similarity)
 	}
 	if err := rows.Scan(dest...); err != nil {
 		return m, err
 	}
-	m.MemoryID = formatUUID(id)
 	if isPinned != nil {
 		m.IsPinned = *isPinned
 	}
@@ -320,7 +330,7 @@ func IsUndefinedTable(err error) bool {
 // Touch bumps the salience counters (access_count, last_accessed_at) of an
 // existing memory and returns the refreshed row.
 func Touch(ctx context.Context, pool *pgxpool.Pool, table, memoryID string) (Memory, error) {
-	stmt := fmt.Sprintf(`UPDATE %s SET access_count = access_count + 1, last_accessed_at = NOW() WHERE memory_id = $1 RETURNING %s`, table, Columns)
+	stmt := fmt.Sprintf(`UPDATE %s SET access_count = access_count + 1, last_accessed_at = NOW() WHERE memory_id = $1::uuid RETURNING %s`, table, Columns)
 	rows, err := pool.Query(ctx, stmt, memoryID)
 	if err != nil {
 		return Memory{}, fmt.Errorf("unable to refresh existing memory: %w", err)
@@ -333,10 +343,6 @@ func Touch(ctx context.Context, pool *pgxpool.Pool, table, memoryID string) (Mem
 		return Memory{}, fmt.Errorf("memory %q was not found", memoryID)
 	}
 	return ms[0], nil
-}
-
-func formatUUID(b [16]byte) string {
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
 // ScopeClause returns the SQL predicate restricting rows to those visible to
