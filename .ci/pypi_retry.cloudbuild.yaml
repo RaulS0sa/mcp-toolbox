@@ -24,6 +24,7 @@
 #     --config=.ci/pypi_retry.cloudbuild.yaml \
 #     --region=us-central1 \
 #     --service-account=projects/database-toolbox/serviceAccounts/release@database-toolbox.iam.gserviceaccount.com \
+#     --substitutions=_PUSH_TO_EXIT_GATES="true" \
 #     .
 
 steps:
