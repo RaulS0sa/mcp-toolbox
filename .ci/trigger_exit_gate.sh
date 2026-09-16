@@ -37,7 +37,7 @@ esac
 
 # OSS Exit Gate constants — owned by Exit Gate, not build configuration.
 readonly EXIT_GATE_PROJECT="${EXIT_GATE_PROJECT:-mcp-toolbox}"
-readonly OSS_EXIT_GATE_BUCKET="${OSS_EXIT_GATE_BUCKET:-oss-exit-gate-prod-projects-bucket}"
+readonly OSS_EXIT_GATE_MANIFEST_BUCKET="${OSS_EXIT_GATE_MANIFEST_BUCKET:-oss-exit-gate-prod-projects-bucket}"
 
 PUSH_TO_EXIT_GATES="${PUSH_TO_EXIT_GATES:-false}"
 if [[ "${PUSH_TO_EXIT_GATES}" != "true" ]]; then
@@ -47,7 +47,7 @@ fi
 
 VERSION="v$(cat ./cmd/version.txt)"
 MANIFEST="${VERSION}-${BUILD_ID}.json"
-MANIFEST_PATH="gs://${OSS_EXIT_GATE_BUCKET}/${EXIT_GATE_PROJECT}/${REGISTRY}/manifests/${MANIFEST}"
+MANIFEST_PATH="gs://${OSS_EXIT_GATE_MANIFEST_BUCKET}/${EXIT_GATE_PROJECT}/${REGISTRY}/manifests/${MANIFEST}"
 
 echo '{"publish_all": true}' > "${MANIFEST}"
 
