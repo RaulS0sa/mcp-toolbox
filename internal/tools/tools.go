@@ -180,6 +180,20 @@ type ToolMeta interface {
 	GetScopesRequired() []string
 }
 
+// ToolVisibility defines the visibility of a tool in the UI.
+type ToolVisibility string
+
+const (
+	VisibilityModel ToolVisibility = "model"
+	VisibilityApp   ToolVisibility = "app"
+)
+
+// ToolUIMetadata defines the UI-specific metadata for a tool with UI Resource.
+type ToolUIMetadata struct {
+	Resource   string           `yaml:"resource" validate:"required"`
+	Visibility []ToolVisibility `yaml:"visibility,omitempty" validate:"omitempty,dive,oneof=model app"`
+}
+
 // ConfigBase owns the YAML fields that every tool's Config shares and that
 // BaseTool reads through.
 // Description is eagerly defaulted by the tool's Initialize (many prebuilt
@@ -191,12 +205,24 @@ type ConfigBase struct {
 	AuthRequired   []string         `yaml:"authRequired"`
 	ScopesRequired []string         `yaml:"scopesRequired"`
 	Annotations    *ToolAnnotations `yaml:"annotations,omitempty"`
+	UI             *ToolUIMetadata  `yaml:"ui,omitempty"`
 }
 
 func (c ConfigBase) GetName() string             { return c.Name }
 func (c ConfigBase) GetDescription() string      { return c.Description }
 func (c ConfigBase) GetAuthRequired() []string   { return c.AuthRequired }
 func (c ConfigBase) GetScopesRequired() []string { return c.ScopesRequired }
+func (c ConfigBase) GetToolUIMetadata() *ToolUIMetadata {
+	if c.UI == nil {
+		return nil
+	}
+	if len(c.UI.Visibility) == 0 {
+		ui := *c.UI
+		ui.Visibility = []ToolVisibility{VisibilityModel, VisibilityApp}
+		return &ui
+	}
+	return c.UI
+}
 
 // BaseTool provides default implementations of various methods on the Tool
 // interface. Tools embed BaseTool to drop their boilerplate and override
