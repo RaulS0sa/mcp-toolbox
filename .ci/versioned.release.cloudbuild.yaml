@@ -427,7 +427,7 @@ steps:
       - "BUILD_ID=$BUILD_ID"
     script: |
       #!/usr/bin/env bash
-      if [[ "$_RUN_EXIT_GATES" == "true" ]]; then
+      if [[ "$_PUSH_TO_EXIT_GATES" == "true" ]]; then
         bash .ci/trigger_exit_gate.sh npm
       else
         echo "Skipping exit gates for npm"
@@ -453,7 +453,7 @@ steps:
       - "BUILD_ID=$BUILD_ID"
     script: |
       #!/usr/bin/env bash
-      if [[ "$_RUN_EXIT_GATES" == "true" ]]; then
+      if [[ "$_PUSH_TO_EXIT_GATES" == "true" ]]; then
         bash .ci/trigger_exit_gate.sh pypi
       else
         echo "Skipping exit gates for pypi"
@@ -479,4 +479,4 @@ substitutions:
   _ASSETS_BUCKET: toolbox-build-assets
   _DOCKER_URI: ${_AR_HOSTNAME}/${PROJECT_ID}/${_AR_REPO_NAME}/toolbox
   _PUSH_LATEST: "false" # Substituted in trigger
-  _RUN_EXIT_GATES: "false"
+  _PUSH_TO_EXIT_GATES: "false"
