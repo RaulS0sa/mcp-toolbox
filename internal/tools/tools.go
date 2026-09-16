@@ -128,6 +128,7 @@ type Tool interface {
 	GetDescription() string
 	GetAuthRequired() []string
 	GetAnnotations(sources.Source) *ToolAnnotations
+	GetToolUIMetadata() *ToolUIMetadata
 	Invoke(context.Context, sources.Source, parameters.ParamValues, AccessToken) (any, util.ToolboxError)
 	EmbedParams(context.Context, parameters.ParamValues, PrimitiveManagerI) (parameters.ParamValues, error)
 	Manifest(sources.Source) (Manifest, error)
@@ -178,6 +179,7 @@ type ToolMeta interface {
 	GetDescription() string
 	GetAuthRequired() []string
 	GetScopesRequired() []string
+	GetToolUIMetadata() *ToolUIMetadata
 }
 
 // ToolVisibility defines the visibility of a tool in the UI.
@@ -326,4 +328,8 @@ func ShouldSuppress(ctx context.Context, t Tool, src sources.Source) bool {
 	}
 
 	return false
+}
+
+func (b BaseTool[T]) GetToolUIMetadata() *ToolUIMetadata {
+	return b.Cfg.GetToolUIMetadata()
 }
