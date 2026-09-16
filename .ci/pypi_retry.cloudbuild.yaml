@@ -55,6 +55,9 @@ steps:
       - "publish-pypi-to-ar"
     env:
       - "BUILD_ID=$BUILD_ID"
+      - "EXIT_GATE_PROJECT=$_EXIT_GATE_PROJECT"
+      - "EXIT_GATE_MANIFEST_BUCKET=$_EXIT_GATE_MANIFEST_BUCKET"
+      - "PUSH_TO_EXIT_GATES=$_PUSH_TO_EXIT_GATES"
     script: |
       #!/usr/bin/env bash
       bash .ci/trigger_exit_gate.sh pypi
@@ -65,3 +68,8 @@ options:
   logging: CLOUD_LOGGING_ONLY
   pool:
     name: projects/$PROJECT_ID/locations/us-central1/workerPools/run-release
+
+substitutions:
+  _EXIT_GATE_PROJECT: "mcp-toolbox"
+  _EXIT_GATE_MANIFEST_BUCKET: "oss-exit-gate-prod-projects-bucket"
+  _PUSH_TO_EXIT_GATES: "false"
