@@ -208,7 +208,6 @@ type ConfigBase struct {
 	ScopesRequired []string         `yaml:"scopesRequired"`
 	Annotations    *ToolAnnotations `yaml:"annotations,omitempty"`
 	UI             *ToolUIMetadata  `yaml:"ui,omitempty"`
-
 }
 
 func (c ConfigBase) GetName() string             { return c.Name }
