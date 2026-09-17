@@ -25,6 +25,7 @@ import (
 	"github.com/googleapis/mcp-toolbox/internal/util"
 	"github.com/googleapis/mcp-toolbox/internal/util/parameters"
 
+	"github.com/googleapis/mcp-toolbox/internal/tools/looker/lookercommon"
 	"github.com/looker-open-source/sdk-codegen/go/rtl"
 	v4 "github.com/looker-open-source/sdk-codegen/go/sdk/v4"
 )
@@ -85,7 +86,7 @@ func (cfg Config) Initialize(context.Context) (tools.Tool, error) {
 	return Tool{
 		BaseTool: tools.NewBaseTool(
 			cfg,
-			tools.GetAnnotationsOrDefault(cfg.Annotations, tools.NewReadOnlyAnnotations),
+			lookercommon.ReadOnlyAnnotations(cfg.Annotations),
 			tools.Manifest{Description: cfg.Description, Parameters: allParameters.Manifest(), AuthRequired: cfg.AuthRequired},
 			allParameters,
 		),
@@ -148,11 +149,13 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 	if err != nil {
 		return nil, util.NewClientServerError(fmt.Sprintf("error getting sdk: %v", err), http.StatusInternalServerError, err)
 	}
+	fields := "id,title,description,model,certification_metadata"
 	req := v4.RequestSearchLooks{
 		Title:       title_ptr,
 		Description: desc_ptr,
 		Limit:       &limit,
 		Offset:      &offset,
+		Fields:      &fields,
 	}
 	resp, err := sdk.SearchLooks(req, source.LookerApiSettings())
 	if err != nil {
@@ -175,7 +178,12 @@ func (t Tool) Invoke(ctx context.Context, s sources.Source, params parameters.Pa
 		if v.Description != nil {
 			vMap["description"] = *v.Description
 		}
-		vMap["model_id"] = *v.Model.Id
+		if v.Model != nil && v.Model.Id != nil {
+			vMap["model_id"] = *v.Model.Id
+		}
+		if v.CertificationMetadata != nil {
+			vMap["certification_metadata"] = v.CertificationMetadata
+		}
 		logger.DebugContext(ctx, "Converted to %v\n", vMap)
 		data = append(data, vMap)
 	}
