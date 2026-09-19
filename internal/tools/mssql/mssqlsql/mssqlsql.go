@@ -51,11 +51,11 @@ type compatibleSource interface {
 
 type Config struct {
 	tools.ConfigBase   `yaml:",inline"`
-	Type               string                 `yaml:"type" validate:"required"`
-	Source             string                 `yaml:"source" validate:"required"`
-	Statement          string                 `yaml:"statement" validate:"required"`
-	Parameters         parameters.Parameters  `yaml:"parameters"`
-	TemplateParameters parameters.Parameters  `yaml:"templateParameters"`
+	Type               string                `yaml:"type" validate:"required"`
+	Source             string                `yaml:"source" validate:"required"`
+	Statement          string                `yaml:"statement" validate:"required"`
+	Parameters         parameters.Parameters `yaml:"parameters"`
+	TemplateParameters parameters.Parameters `yaml:"templateParameters"`
 }
 
 // validate interface
