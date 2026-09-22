@@ -44,15 +44,13 @@ annotations:
 	}
 
 	want := &tools.ToolAnnotations{
-		ReadOnlyHint:    boolPtr(true),
-		DestructiveHint: boolPtr(false),
+		ReadOnlyHint:    testutils.BoolPtr(true),
+		DestructiveHint: testutils.BoolPtr(false),
 	}
 	if diff := cmp.Diff(want, cfg.Annotations); diff != "" {
 		t.Errorf("ConfigBase.Annotations mismatch (-want +got):\n%s", diff)
 	}
 }
-
-func boolPtr(v bool) *bool { return &v }
 
 func newBaseTool() (tools.BaseTool[tools.ConfigBase], tools.Manifest) {
 	cfg := tools.ConfigBase{
