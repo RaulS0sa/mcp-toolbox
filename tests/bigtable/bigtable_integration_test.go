@@ -566,7 +566,11 @@ func runBigTableAdminToolsTest(t *testing.T, instanceId string) {
 	}
 
 	// List schemas
-	listSchemasResp := assertMCPSuccess(t, "bigtable-list-schemas", map[string]any{})
+	// The integration instance is shared and may contain more than the default
+	// limit of 20 tables, so request enough entries to include this test's table.
+	listSchemasResp := assertMCPSuccess(t, "bigtable-list-schemas", map[string]any{
+		"limit": 1000,
+	})
 	if len(listSchemasResp.Result.Content) == 0 {
 		t.Fatalf("bigtable-list-schemas returned empty content")
 	}
