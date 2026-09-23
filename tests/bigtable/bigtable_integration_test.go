@@ -513,7 +513,14 @@ func runBigTableAdminToolsTest(t *testing.T, instanceId string) {
 
 	// List tables
 	listTablesResp := assertMCPSuccess(t, "bigtable-list-tables", map[string]any{})
-	if len(listTablesResp.Result.Content) == 0 || !strings.Contains(listTablesResp.Result.Content[0].Text, tableName) {
+	if len(listTablesResp.Result.Content) == 0 {
+		t.Fatalf("bigtable-list-tables returned empty content")
+	}
+	var tableNames []string
+	if err := json.Unmarshal([]byte(listTablesResp.Result.Content[0].Text), &tableNames); err != nil {
+		t.Fatalf("failed to unmarshal bigtable-list-tables JSON output: %v\nRaw output: %s", err, listTablesResp.Result.Content[0].Text)
+	}
+	if !slices.Contains(tableNames, tableName) {
 		t.Fatalf("bigtable-list-tables output does not contain expected table %q: %v", tableName, listTablesResp.Result.Content)
 	}
 
@@ -566,10 +573,8 @@ func runBigTableAdminToolsTest(t *testing.T, instanceId string) {
 	}
 
 	// List schemas
-	// The integration instance is shared and may contain more than the default
-	// limit of 20 tables, so request enough entries to include this test's table.
 	listSchemasResp := assertMCPSuccess(t, "bigtable-list-schemas", map[string]any{
-		"limit": 1000,
+		"limit": len(tableNames),
 	})
 	if len(listSchemasResp.Result.Content) == 0 {
 		t.Fatalf("bigtable-list-schemas returned empty content")
