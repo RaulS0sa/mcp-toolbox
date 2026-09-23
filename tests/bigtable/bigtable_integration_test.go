@@ -46,6 +46,13 @@ var (
 
 const orphanedResourceTTL = 2 * time.Hour
 
+var integrationTablePrefixes = []string{
+	"admin_test_table_",
+	"auth_table_",
+	"param_table_",
+	"tmpl_param_table_",
+}
+
 func TestMain(m *testing.M) {
 	if BigtableProject != "" && BigtableInstance != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -92,7 +99,7 @@ func cleanupOrphanedBigtableResources(ctx context.Context) {
 		log.Printf("INTEGRATION CLEANUP: Failed to list Bigtable tables: %v", err)
 	} else {
 		for _, table := range tables {
-			if shouldCleanupBigtableResource(table, "admin_test_table_", now) {
+			if shouldCleanupBigtableTable(table, now) {
 				log.Printf("INTEGRATION CLEANUP: Deleting orphaned table %s", table)
 				if err := adminClient.DeleteTable(ctx, table); err != nil {
 					log.Printf("INTEGRATION CLEANUP: Failed to delete table %s: %v", table, err)
@@ -117,6 +124,15 @@ func cleanupOrphanedBigtableResources(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func shouldCleanupBigtableTable(name string, now time.Time) bool {
+	for _, prefix := range integrationTablePrefixes {
+		if shouldCleanupBigtableResource(name, prefix, now) {
+			return true
+		}
+	}
+	return false
 }
 
 func shouldCleanupBigtableResource(name, prefix string, now time.Time) bool {
@@ -164,6 +180,8 @@ func TestBigtableToolEndpoints(t *testing.T) {
 	sourceConfig := getBigtableVars(t)
 
 	uniqueID := strings.ReplaceAll(uuid.New().String(), "-", "")
+	resourceID := uniqueID[:8]
+	createdAt := strconv.FormatInt(time.Now().Unix(), 10)
 	t.Logf("Starting Bigtable test with uniqueID: %s", uniqueID)
 
 	args := []string{"--enable-api"}
@@ -188,15 +206,15 @@ func TestBigtableToolEndpoints(t *testing.T) {
 
 	t.Cleanup(func() {
 		t.Logf("Running global cleanup for uniqueID: %s", uniqueID)
-		tests.CleanupBigtableTables(t, context.Background(), adminClient, uniqueID)
+		tests.CleanupBigtableTables(t, context.Background(), adminClient, resourceID)
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 7*time.Minute)
 	defer cancel()
 
-	tableName := "param_table_" + uniqueID
-	tableNameAuth := "auth_table_" + uniqueID
-	tableNameTemplateParam := "tmpl_param_table_" + uniqueID
+	tableName := "param_table_" + createdAt + "_" + resourceID
+	tableNameAuth := "auth_table_" + createdAt + "_" + resourceID
+	tableNameTemplateParam := "tmpl_param_table_" + createdAt + "_" + resourceID
 
 	columnFamilyName := "cf"
 	muts, rowKeys := getTestData(columnFamilyName)
