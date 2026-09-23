@@ -106,10 +106,14 @@ func cleanupOrphanedBigtableResources(ctx context.Context) {
 		log.Printf("INTEGRATION CLEANUP: Failed to list Bigtable instances: %v", err)
 	}
 	for _, instance := range instances {
-		if shouldCleanupBigtableResource(instance.Name, "testi-", now) {
-			log.Printf("INTEGRATION CLEANUP: Deleting orphaned instance %s", instance.Name)
-			if err := instanceAdminClient.DeleteInstance(ctx, instance.Name); err != nil {
-				log.Printf("INTEGRATION CLEANUP: Failed to delete instance %s: %v", instance.Name, err)
+		instanceID := instance.Name
+		if idx := strings.LastIndex(instanceID, "/"); idx >= 0 {
+			instanceID = instanceID[idx+1:]
+		}
+		if shouldCleanupBigtableResource(instanceID, "testi-", now) {
+			log.Printf("INTEGRATION CLEANUP: Deleting orphaned instance %s", instanceID)
+			if err := instanceAdminClient.DeleteInstance(ctx, instanceID); err != nil {
+				log.Printf("INTEGRATION CLEANUP: Failed to delete instance %s: %v", instanceID, err)
 			}
 		}
 	}
